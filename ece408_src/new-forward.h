@@ -21,22 +21,41 @@ void forward(mshadow::Tensor<cpu, 4, DType> &y, const mshadow::Tensor<cpu, 4, DT
     The goal here is to be correct, not fast (this is the CPU implementation.)
     */
 
-    
-    const int B = x.shape_[0];
-    // const int M = y.shape_[1];
-    // const int C = x.shape_[1];
-    // const int H = x.shape_[2];
-    // const int W = x.shape_[3];
-    // const int K = w.shape_[3];
 
-    for (int b = 0; b < B; ++b) {
-        CHECK_EQ(0, 1) << "Missing an ECE408 CPU implementation!";
+    const int batch_size = x.shape_[0];
+    const int out_fmap_size = y.shape_[1];
+    const int in_fmap_size = x.shape_[1];
+    const int img_height = x.shape_[2];
+    const int img_width = x.shape_[3];
+    const int kernel_size = k.shape_[3];
 
-        /* ... a bunch of nested loops later...
-            y[b][m][h][w] += x[b][c][h + p][w + q] * k[m][c][p][q];
-        */
+    for (int batch = 0; batch < batch_size; ++batch) {
+        // loop through the iage batches
+        for (int out_fmap = 0; out_fmap < out_fmap_size; ++out_fmap) {
+            // loop through the output feature maps
+
+            for (int yval = 0; yval < img_height; ++yval) {
+                for (int xval = 0; xval < img_width; ++xval) {
+                    // loop through each element of the input image
+
+                    y[batch][out_fmap][yval][xval] = 0;
+
+                    for (int in_fmap = 0; in_fmap < in_fmap_size; ++in_fmap) {
+                        // loop through the output feature maps
+
+                        for (int k_y = 0; k_y < kernel_size; ++k_y) {
+                            for (int k_x = 0; k_x < kernel_size; ++k_x) {
+                                // loop through the kernel elements
+                                y[batch][out_fmap][yval][xval] +=
+                                    x[batch][in_fmap][yval + k_y][xval + k_x] *
+                                    k[out_fmap][in_fmap][k_y][k_x];
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
-
 
 }
 }

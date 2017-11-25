@@ -101,18 +101,18 @@ Download the rai binary for your platform. You will probably use it for developm
 You should have received a `.rai_profile` file by email.
 Put that file in `~/.rai_profile` (Linux/macOS) or `%HOME%/.rai_profile` (Windows).
 As soon as you and your two teammates agree on a team name, fill in the corresponding entry in your `.rai_profile`.
-Your `.rai_profile` should look something like this:
+Your `.rai_profile` should look something like this (indented with tabs!)
 
     profile:
-      firstname: <your-given-name>
-      lastname: <your-surname>
-      username: <your-username>
-      email: <your-access-key>
-      access_key: <your-access-key>
-      secret_key: <your-secret-key>
-      affiliation: uiuc
-      team:
-        name: <your-team-name-here>
+        firstname: <your-given-name>
+        lastname: <your-surname>
+        username: <your-username>
+        email: <your-access-key>
+        access_key: <your-access-key>
+        secret_key: <your-secret-key>
+        affiliation: uiuc
+        team:
+            name: <your-team-name-here>
 
 **Be sure you all use the same team name**.
 
@@ -238,6 +238,21 @@ See the [description](#markdown-header-skeleton-code-description) of the skeleto
 
 Modify `ece408_src/new-forward.h` to implement the forward convolution described in [Chapter 16 of the textbook](https://wiki.illinois.edu/wiki/display/ECE408Fall2017/Textbook+Chapters).
 The performance of the CPU convolution is not part of the project evaluation.
+The algorithm is also below, for your convenience
+
+    for b = 0 .. B)                    // for each image in the batch 
+        for m = 0 .. M                 // for each output feature maps
+            for h = 0 .. H_out         // for each output element
+                for w = 0 .. W_out
+                {
+                    y[b][m][h][w] = 0;
+                    for c = 0 .. C     // sum over all input feature maps
+                        for p = 0 .. K // KxK filter
+                            for q = 0 .. K
+                                y[b][m][h][w] += x[b][c][h + p][w + q] * k[m][c][p][q]
+                }
+
+Unlike the convolutions described in the class, note that this one is not centered on the input image.
 
 Because this operator is different than the built-in mxnet operator, you will need to load a different model.
 `m2.1.py` handles this for you.
@@ -259,9 +274,7 @@ The correctness does depend on the data size. Check your correctness on the full
 
 For example, you could modify `rai_build.yml` to run
 
-    - python m3.1.py ece408-low 100
-
-to generate two complementary profile files, running on smaller datasets.
+    - python m2.1.py ece408-low 100
 
 | Correctness | Size | Model  |
 |-------------| -----| -----  |
@@ -279,6 +292,9 @@ Use
 to mark your submission. This will notify the teaching staff of which `report.pdf` draft to consider.
 
 This will run your code against the two datasets, and check the time and correctness.
+
+Your `report.pdf` at this stage should contain content up through M2.1  described in the final report section.
+
 
 ## Milestone 3
 **A New GPU Convolution Layer in MxNet: Due Friday December 1st, 2017**
@@ -314,6 +330,8 @@ In this example, the forward layer took 14.8954 seconds, and the forward_kernel 
 **Deliverables**
 Again, use `rai -p <project folder> --submit=m3` to submit your code.
 
+Your `report.pdf` at this stage should contain content up through M3.1 described in the final report section.
+
 ## Final Submission
 **An Optimized Layer and Final Report: Due Friday December 15th, 2017**
 
@@ -345,18 +363,25 @@ you can collect the generated files by following the download link reported by r
 ### Final Report
 
 You should provide a brief PDF final report `report.pdf`, with the following content.
+The report does not need to be a particular length, but should be long enough to cover all of this content.
 
 1. **Baseline Results**
-    1. M1.1: mxnet CPU layer correctness and elapsed time for the whole pythong program.
+    1. M1.1: mxnet CPU layer correctness and elapsed time for the whole python program.
+     You can measure the elapsed time of the program with the `time` command.
     2. M1.2/M1.3: mxnet GPU layer performance results (`nvprof` profile). Include your profile, and describe in a few words how the GPU is spending its time.
-    3. M2.1: your baseline cpu implementation performance results (time)
-    4. M3.1: your baseline gpu implementation performance results (time, `nvprof` profile)
+    This is to confirm you can generate a profile and can interpret it.
+    3. M2.1: your baseline cpu implementation correctness and performance results (time).
+    The `Op Time:` printed by the program will show the time just for the convolution layer.
+    The implementation should have the expected correctness.
+    4. M3.1: your baseline gpu implementation performance results (time, `nvprof` profile).
+    The implementation should have the expected correctness.
 2. **Optimization Approach and Results**
     * how you identified the optimization opportunity
     * why you thought the approach would be fruitful
     * the effect of the optimization. was it fruitful, and why or why not. Use nvprof as needed to justify your explanation.
     * Any external references used during identification or development of the optimization
 3. **References** (as needed)
+4. **(Optional) Suggestions for Improving Next Year**
 
 ### Rubric
 
