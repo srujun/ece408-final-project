@@ -30,7 +30,7 @@ void forward(mshadow::Tensor<cpu, 4, DType> &y, const mshadow::Tensor<cpu, 4, DT
     const int kernel_size = k.shape_[3];
 
     for (int batch = 0; batch < batch_size; ++batch) {
-        // loop through the iage batches
+        // loop through the image batches
         for (int out_fmap = 0; out_fmap < out_fmap_size; ++out_fmap) {
             // loop through the output feature maps
 
@@ -41,7 +41,7 @@ void forward(mshadow::Tensor<cpu, 4, DType> &y, const mshadow::Tensor<cpu, 4, DT
                     y[batch][out_fmap][yval][xval] = 0;
 
                     for (int in_fmap = 0; in_fmap < in_fmap_size; ++in_fmap) {
-                        // loop through the output feature maps
+                        // loop through the input feature maps
 
                         for (int k_y = 0; k_y < kernel_size; ++k_y) {
                             for (int k_x = 0; k_x < kernel_size; ++k_x) {
