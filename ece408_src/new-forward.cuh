@@ -28,7 +28,7 @@ __global__ void forward_kernel(float *y, const float *x, const float *k,
     // #define k4d(i3,i2,i1,i0) k[(i3) * (C * K * K) + (i2)*(K * K) + (i1)*(K) + i0]
 
     // const int batches = B;
-    const int fmaps = M;
+    // const int fmaps = M;
     const int channels = C;
     const int img_height = H - K + 1;
     const int img_width = W - K + 1;
@@ -102,7 +102,7 @@ void forward<gpu, float>(mshadow::Tensor<gpu, 4, float> &y,
     // dim3 gridDim(0);
     // dim3 blockDim(0);
 
-    const int BLOCK_SIZE = 16;
+    // const int BLOCK_SIZE = 16;
     const int grid_width = (img_width - kernel_size + 1);// / BLOCK_SIZE;
     const int grid_height = (img_height - kernel_size + 1);// / BLOCK_SIZE;
 
