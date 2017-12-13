@@ -24,17 +24,18 @@ If you are unsure about whether something does not meet those guidelines, ask a 
 
 You may wish to stay ahead of these deadlines (particularly, allow more than two weeks between milestone 3 and the final submission).
 
-1. [Milestone 1: Getting Started: Due 11/10/2017](#markdown-header-milestone-1)
+1. [Milestone 1: Getting Started: Due 11/10/2017](#milestone-1)
     1. [Run the MXNet baseline forward CPU pass.]()
     2. [Run the MXNet baseline forward GPU pass.]()
     3. [Generate a profile of the GPU forward pass using `nvprof`.]()
-2. [Milestone 2: A New CPU Layer in MXNet: Due 10pm 11/17/2017](#markdown-header-milestone-2)
+2. [Milestone 2: A New CPU Layer in MXNet: Due 10pm 11/17/2017](#milestone-2)
     1. [Implement a CPU convolution pass in MXNet]()
-2. [Milestone 3: A New GPU Layer in MXNet: Due 5pm 12/1/2017](#markdown-header-milestone-3)
+2. [Milestone 3: A New GPU Layer in MXNet: Due 5pm 12/1/2017](#milestone-3)
     1. [Implement a GPU convolution in MXNet]()
-3. [Final Submission: Optimized GPU Forward Implementation: Due 5pm 12/15/2017](#markdown-header-final-submission)
+3. [Final Submission: Optimized GPU Forward Implementation: Due 5pm 12/15/2017](#final-submission)
+    1. [Ranking Score](#rubric)
     1. [Implement an optimized GPU convolution in MXNet]()
-    2. [Final Report](#markdown-header-final-report)
+    2. [Final Report](#final-report)
 
 ## Remote Development Environment
 
@@ -276,7 +277,7 @@ For example, you could modify `rai_build.yml` to run
 
     - python m2.1.py ece408-low 100
 
-| Correctness | Size | Model  |
+| Model | Number of Images | Correctness  |
 |-------------| -----| -----  |
 | ece408-high | 10000 (default) | 0.8562 |
 | ece408-low  | 10000 (default) | 0.629  |
@@ -402,6 +403,27 @@ The report does not need to be a particular length, but should be long enough to
     * Milestone 2 ( 5% )
     * Milestone 3 ( 10% )
     * Final Submission ( 35% )
+
+**Relative Ranking**
+
+The relative ranking will be determined in the following way:
+
+To check that your implementation is correct, I will run your code with
+ * B = some large number of images (5k-10k)
+ * models = `ece408-high`, `ece408-low`, some other model you haven't seen
+
+Your optimized code should conform to the following results
+
+| Model | Number of Images | Correctness  |
+|-------------| -----| -----  |
+| ece408-high | 10000 (default) | 0.8562 |
+| ece408-high | 2000 | 0.8625  | 
+| ece408-low  | 10000 (default) | 0.629  |
+| ece408-low  | 2000 | 0.6275 |
+
+To compute your score, I will compute the median team performance.
+Your performance will be converted to a number of standard deviations above/below that median.
+That value will be linearly mapped into the space of 0-25 to determine the ranking grade.
 
 ## Skeleton Code Description
 
