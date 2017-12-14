@@ -27,7 +27,7 @@ __global__ void matrixMultiplyShared(
 
     int col = blockDim.x * blockIdx.x + threadIdx.x;
     int row = blockDim.y * blockIdx.y + threadIdx.y;
-    // int batch = blockIdx.z;
+    int batch = blockIdx.z;
 
     float val = 0;
 
@@ -45,7 +45,7 @@ __global__ void matrixMultiplyShared(
             subTileA[threadIdx.y][threadIdx.x] = 0;
 
         if (idxBrow < numBRows && idxBcol < numBColumns)
-            subTileB[threadIdx.y][threadIdx.x] = B[numBColumns * idxBrow + idxBcol];
+            subTileB[threadIdx.y][threadIdx.x] = B[(numBRows * numBColumns) * batch + numBColumns * idxBrow + idxBcol];
         else
             subTileB[threadIdx.y][threadIdx.x] = 0;
 
@@ -54,7 +54,7 @@ __global__ void matrixMultiplyShared(
         if (row < numCRows && col < numCColumns)
         {
             for (int j = 0; j < MAT_TILE_DIM; j++)
-            val += subTileA[threadIdx.y][j] * subTileB[j][threadIdx.x];
+                val += subTileA[threadIdx.y][j] * subTileB[j][threadIdx.x];
         }
 
         __syncthreads();
@@ -62,7 +62,7 @@ __global__ void matrixMultiplyShared(
 
     if (row < numCRows && col < numCColumns)
     {
-        int idxC = numCColumns * row + col;
+        int idxC = (numCRows * numCColumns) * batch + numCColumns * row + col;
         C[idxC] = val;
     }
 }
@@ -126,8 +126,7 @@ __global__ void unroll_kernel(
     // CHECK_EQ(W_xu, H_out*W_out);
 
     #define x4d(i3,i2,i1,i0) x[(i3)*(C*H_in*W_in) + (i2)*(H_in*W_in) + (i1)*(W_in) + i0]
-    #define xu3d(i2,i1,i0) x_unroll[(i2)*(H_xu*W_xu) + (i1)*(H_xu) + i0]
-    // used to be (i1)*(W_xu) + i0
+    #define xu3d(i2,i1,i0) x_unroll[(i2)*(H_xu*W_xu) + (i1)*(W_xu) + i0]
 
     int batch = blockIdx.x;
     int tId = blockDim.y * blockIdx.y + threadIdx.x;
@@ -151,7 +150,7 @@ __global__ void unroll_kernel(
             {
                 int w_unroll = w_base + k_y * K + k_x;
                 // TODO: swap index names for xu3d
-                xu3d(batch, h_unroll, w_unroll) = x4d(batch, channel, x_row + k_y, x_col + k_x);
+                xu3d(batch, w_unroll, h_unroll) = x4d(batch, channel, x_row + k_y, x_col + k_x);
             }
         }
     }
@@ -197,13 +196,13 @@ void forward<gpu, float>(
     // will create 3 matrices: wts, x_unroll, newy
     const int wts_rows = fmaps;
     const int wts_cols = channels * k_dim * k_dim;
-    const int x_unroll_rows = channels * k_dim * k_dim;
-    const int x_unroll_cols = h_out * w_out;
+    const int H_xu = channels * k_dim * k_dim;
+    const int W_xu = h_out * w_out;
     // const int newy_rows = fmaps;
     // const int newy_cols = h_out * w_out;
 
-    Tensor<gpu, 2, float> wts = Tensor<gpu, 2, float>(w.dptr_, Shape2(wts_rows, wts_cols));
-    Tensor<gpu, 3, float> x_unroll(Shape3(batches, x_unroll_rows, x_unroll_cols));
+    // Tensor<gpu, 2, float> wts = Tensor<gpu, 2, float>(w.dptr_, Shape2(wts_rows, wts_cols));
+    Tensor<gpu, 3, float> x_unroll(Shape3(W_xu, H_xu, batches));
     // Tensor<gpu, 2, float> newy = Tensor<gpu, 2, float>(y.dptr_, Shape2(newy_rows, newy_cols));
 
     AllocSpace(&x_unroll);
@@ -222,48 +221,36 @@ void forward<gpu, float>(
     unroll_kernel<<<grid_unroll, block_unroll>>>(
         x.dptr_, x_unroll.dptr_,
         h_in, w_in, h_out, w_out,
-        x_unroll_rows, x_unroll_cols,
+        H_xu, W_xu,
         batches, channels, k_dim
     );
 
     /**************************************************************************/
 
-    MSHADOW_CUDA_CALL(cudaDeviceSynchronize());
-
     /*************************** MATRIX MULTIPLY ******************************/
 
     const int numCRows = wts_rows;
-    const int numCColumns = x_unroll_cols;
-    dim3 grid_mm(ceil(numCColumns, MAT_TILE_DIM), ceil(numCRows, MAT_TILE_DIM), 1);//batches);
+    const int numCColumns = W_xu;
+    dim3 grid_mm(ceil(numCColumns, MAT_TILE_DIM), ceil(numCRows, MAT_TILE_DIM), batches);
     dim3 block_mm(MAT_TILE_DIM, MAT_TILE_DIM, 1);
 
     fprintf(stdout, "\nMatrix Multiply Kernel:\n");
     printDim3((char *)"grid", grid_mm);
     printDim3((char *)"block", block_mm);
 
-    for(int batch = 0; batch < batches; batch++)
-    {
-        matrixMultiplyShared<<<grid_mm, block_mm>>>(
-            wts.dptr_, &(x_unroll.dptr_[batch * (x_unroll_rows * x_unroll_cols)]), &(y.dptr_[batch * (channels * h_out * w_out)]),
-            wts_rows, wts_cols,
-            x_unroll_rows, x_unroll_cols,
-            wts_rows, x_unroll_cols
-        );
-    }
     // A -> wts
     // B -> x_unroll
     // C -> y
-    // matrixMultiplyShared<<<grid_mm, block_mm>>>(
-    //     wts.dptr_, x_unroll.dptr_, y.dptr_,
-    //     wts_rows, wts_cols,
-    //     x_unroll_rows, x_unroll_cols,
-    //     wts_rows, x_unroll_cols
-    // );
+    matrixMultiplyShared<<<grid_mm, block_mm>>>(
+        w.dptr_, x_unroll.dptr_, y.dptr_,
+        wts_rows, wts_cols,
+        H_xu, W_xu,
+        numCRows, numCColumns
+    );
 
     /**************************************************************************/
 
     // Use MSHADOW_CUDA_CALL to check for CUDA runtime errors.
-    MSHADOW_CUDA_CALL(cudaDeviceSynchronize());
 
     FreeSpace(&x_unroll);
 }

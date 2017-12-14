@@ -74,14 +74,14 @@ public:
     CHECK_EQ(out_data.size(), 1U);        // create a single output
     CHECK_EQ(req[conv::kOut], kWriteTo);  // expect to be overwriting output
     CHECK_EQ(this->param_.kernel[0], this->param_.kernel[1]); // ECE408: square kernel
-    
+
     const auto &x = in_data[conv::kData];
     const auto &xshape = x.shape_;
     const auto &w = in_data[conv::kWeight];
     const auto &wshape = w.shape_;
     const auto &y = out_data[conv::kOut];
     const auto &yshape = y.shape_;
-    
+
     CHECK_EQ(wshape.ndim(), 4U); // num_filter , channel  y, x
     CHECK_EQ(wshape[0], this->param_.num_filter); // ECE408: support 1 group
     CHECK_EQ(wshape[1], xshape[1]);
@@ -111,6 +111,21 @@ public:
     // zero the output.
     y_4d = scalar<DType>(0) * y_4d;
 
+    const int batches = x.shape_[0];
+    const int fmaps = y.shape_[1];
+    const int channels = x.shape_[1];
+    const int img_height = x.shape_[2];
+    const int img_width = x.shape_[3];
+    const int kernel_size_x = w.shape_[2];
+    const int kernel_size_y = w.shape_[3];
+    fprintf(stdout, "\nInput properties:\n");
+    fprintf(stdout, "batches = %d\n", batches);
+    fprintf(stdout, "fmaps = %d\n", fmaps);
+    fprintf(stdout, "channels = %d\n", channels);
+    fprintf(stdout, "img_height = %d\n", img_height);
+    fprintf(stdout, "img_width = %d\n", img_width);
+    fprintf(stdout, "kernel_size = %dx%d\n", kernel_size_x, kernel_size_y);
+
     // Synchronize before timer
 #ifdef __CUDACC__
     MSHADOW_CUDA_CALL(cudaDeviceSynchronize());
@@ -126,7 +141,7 @@ public:
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed_seconds = end - start;
     fprintf(stdout, "Op Time: %f\n", elapsed_seconds.count());
-              
+
   }
 
   virtual void Backward(const OpContext &ctx,
