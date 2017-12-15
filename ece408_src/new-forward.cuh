@@ -2,7 +2,7 @@
 #ifndef MXNET_OPERATOR_NEW_FORWARD_CUH_
 #define MXNET_OPERATOR_NEW_FORWARD_CUH_
 
-#define MAT_TILE_DIM  16
+#define MAT_TILE_DIM  32
 #define MAX_THREADS   1024
 #define ceil(num,denom) (((num)-1) / (denom) + 1)
 
@@ -13,6 +13,7 @@ namespace mxnet
 namespace op
 {
 
+// __constant__ float cKernelMask[50][25];
 
 // Compute C = A * B
 __global__ void matrixMultiplyShared(
@@ -128,8 +129,8 @@ __global__ void unroll_kernel(
     #define x4d(i3,i2,i1,i0) x[(i3)*(C*H_in*W_in) + (i2)*(H_in*W_in) + (i1)*(W_in) + i0]
     #define xu3d(i2,i1,i0) x_unroll[(i2)*(H_xu*W_xu) + (i1)*(W_xu) + i0]
 
-    int batch = blockIdx.x;
-    int tId = blockDim.y * blockIdx.y + threadIdx.x;
+    int batch = blockIdx.y;
+    int tId = blockDim.x * blockIdx.x + threadIdx.x;
 
     if (tId < C * W_xu)
     {
@@ -211,7 +212,7 @@ void forward<gpu, float>(
 
     const int threads_per_img = channels * h_out * w_out;
     const int blocks_per_img = ceil(threads_per_img, MAX_THREADS);
-    dim3 grid_unroll(batches, blocks_per_img, 1);
+    dim3 grid_unroll(blocks_per_img, batches, 1);
     dim3 block_unroll(MAX_THREADS, 1, 1);
 
     fprintf(stdout, "\nUnroll Kernel:\n");
@@ -226,6 +227,8 @@ void forward<gpu, float>(
     );
 
     /**************************************************************************/
+
+    // cudaMemcpyToSymbol(cKernelMask, w.dptr_, wts_rows * wts_cols * sizeof(float), cudaMemcpyDeviceToDevice);
 
     /*************************** MATRIX MULTIPLY ******************************/
 
