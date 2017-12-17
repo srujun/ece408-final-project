@@ -5,6 +5,9 @@
 #define MAT_TILE_DIM  32
 #define MAX_THREADS   1024
 #define ceil(num,denom) (((num)-1) / (denom) + 1)
+#define CONST_M       50
+#define CONST_K       5
+#define CONST_C       1
 
 #include <mxnet/base.h>
 
@@ -13,7 +16,7 @@ namespace mxnet
 namespace op
 {
 
-// __constant__ float cKernelMask[50][25];
+__constant__ float weights[CONST_M][CONST_C * CONST_K * CONST_K];
 
 // Compute C = A * B
 __global__ void matrixMultiplyShared(
@@ -23,7 +26,7 @@ __global__ void matrixMultiplyShared(
     int numCRows, int numCColumns
 )
 {
-    __shared__ float subTileA[MAT_TILE_DIM][MAT_TILE_DIM];
+    // __shared__ float subTileA[MAT_TILE_DIM][MAT_TILE_DIM];
     __shared__ float subTileB[MAT_TILE_DIM][MAT_TILE_DIM];
 
     int col = blockDim.x * blockIdx.x + threadIdx.x;
@@ -36,14 +39,16 @@ __global__ void matrixMultiplyShared(
     for (int i = 0; i < numIters; i++)
     {
         int idxArow = row;
-        int idxAcol = MAT_TILE_DIM * i + threadIdx.x;
+        // int idxAcol = MAT_TILE_DIM * i + threadIdx.x;
         int idxBrow = MAT_TILE_DIM * i + threadIdx.y;
         int idxBcol = col;
 
-        if (idxArow < numARows && idxAcol < numAColumns)
-            subTileA[threadIdx.y][threadIdx.x] = A[numAColumns * idxArow + idxAcol];
-        else
-            subTileA[threadIdx.y][threadIdx.x] = 0;
+        int idxCONSTcol = MAT_TILE_DIM * i;
+
+        // if (idxArow < numARows && idxAcol < numAColumns)
+        //     subTileA[threadIdx.y][threadIdx.x] = A[numAColumns * idxArow + idxAcol];
+        // else
+        //     subTileA[threadIdx.y][threadIdx.x] = 0;
 
         if (idxBrow < numBRows && idxBcol < numBColumns)
             subTileB[threadIdx.y][threadIdx.x] = B[(numBRows * numBColumns) * batch + numBColumns * idxBrow + idxBcol];
@@ -55,7 +60,8 @@ __global__ void matrixMultiplyShared(
         if (row < numCRows && col < numCColumns)
         {
             for (int j = 0; j < MAT_TILE_DIM; j++)
-                val += subTileA[threadIdx.y][j] * subTileB[j][threadIdx.x];
+                // val += subTileA[threadIdx.y][j] * subTileB[j][threadIdx.x];
+                val += weights[idxArow][idxCONSTcol + j] * subTileB[j][threadIdx.x];
         }
 
         __syncthreads();
@@ -66,52 +72,6 @@ __global__ void matrixMultiplyShared(
         int idxC = (numCRows * numCColumns) * batch + numCColumns * row + col;
         C[idxC] = val;
     }
-}
-
-
-__global__ void forward_kernel(
-    float *y, const float *x, const float *k,
-    const int B, const int M, const int C, const int H, const int W, const int K
-)
-{
-    /*
-    Modify this function to implement the forward pass described in Chapter 16.
-    We have added an additional dimension to the tensors to support an entire mini-batch
-    The goal here is to be correct AND fast.
-    We have some nice #defs for you below to simplify indexing. Feel free to use them, or create your own.
-    */
-
-    #define y4d(i3,i2,i1,i0) y[(i3)*(M*H_out*W_out) + (i2)*(H_out*W_out) + (i1)*(W_out) + i0]
-    #define x4d(i3,i2,i1,i0) x[(i3)*(C*H*W) + (i2)*(H*W) + (i1)*(W) + i0]
-    #define k4d(i3,i2,i1,i0) k[(i3)*(C*K*K) + (i2)*(K*K) + (i1)*(K) + i0]
-
-    const int H_out = H - K + 1;
-    const int W_out = W - K + 1;
-
-    int batch = blockIdx.x;
-    int fmap = blockIdx.y;
-    int xval = threadIdx.x;
-    int yval = threadIdx.y;
-
-    float acc = 0;
-
-    for (int channel = 0; channel < C; ++channel)
-    {
-        for (int k_y = 0; k_y < K; ++k_y)
-        {
-            for (int k_x = 0; k_x < K; ++k_x)
-            {
-                acc += x4d(batch, channel, yval + k_y, xval + k_x) *
-                       k4d(fmap, channel, k_y, k_x);
-            }
-        }
-    }
-
-    y4d(batch, fmap, yval, xval) = acc;
-
-    #undef y4d
-    #undef x4d
-    #undef k4d
 }
 
 
@@ -228,7 +188,7 @@ void forward<gpu, float>(
 
     /**************************************************************************/
 
-    // cudaMemcpyToSymbol(cKernelMask, w.dptr_, wts_rows * wts_cols * sizeof(float), cudaMemcpyDeviceToDevice);
+    cudaMemcpyToSymbol(weights, w.dptr_, wts_rows * wts_cols * sizeof(float), 0, cudaMemcpyDeviceToDevice);
 
     /*************************** MATRIX MULTIPLY ******************************/
 
