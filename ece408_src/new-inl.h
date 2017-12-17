@@ -111,21 +111,6 @@ public:
     // zero the output.
     y_4d = scalar<DType>(0) * y_4d;
 
-    const int batches = x.shape_[0];
-    const int fmaps = y.shape_[1];
-    const int channels = x.shape_[1];
-    const int img_height = x.shape_[2];
-    const int img_width = x.shape_[3];
-    const int kernel_size_x = w.shape_[2];
-    const int kernel_size_y = w.shape_[3];
-    fprintf(stdout, "\nInput properties:\n");
-    fprintf(stdout, "batches = %d\n", batches);
-    fprintf(stdout, "fmaps = %d\n", fmaps);
-    fprintf(stdout, "channels = %d\n", channels);
-    fprintf(stdout, "img_height = %d\n", img_height);
-    fprintf(stdout, "img_width = %d\n", img_width);
-    fprintf(stdout, "kernel_size = %dx%d\n", kernel_size_x, kernel_size_y);
-
     // Synchronize before timer
 #ifdef __CUDACC__
     MSHADOW_CUDA_CALL(cudaDeviceSynchronize());
