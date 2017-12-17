@@ -28,7 +28,7 @@ __global__ void matrixMultiplyShared(
 
     int col = blockDim.x * blockIdx.x + threadIdx.x;
     int row = blockDim.y * blockIdx.y + threadIdx.y;
-    int batch = blockIdx.z;
+    // int batch = blockIdx.z;
 
     float val = 0;
 
@@ -46,7 +46,8 @@ __global__ void matrixMultiplyShared(
             subTileA[threadIdx.y][threadIdx.x] = 0;
 
         if (idxBrow < numBRows && idxBcol < numBColumns)
-            subTileB[threadIdx.y][threadIdx.x] = B[(numBRows * numBColumns) * batch + numBColumns * idxBrow + idxBcol];
+            // subTileB[threadIdx.y][threadIdx.x] = B[(numBRows * numBColumns) * batch + numBColumns * idxBrow + idxBcol];
+            subTileB[threadIdx.y][threadIdx.x] = B[numBColumns * idxBrow + idxBcol];
         else
             subTileB[threadIdx.y][threadIdx.x] = 0;
 
@@ -63,7 +64,8 @@ __global__ void matrixMultiplyShared(
 
     if (row < numCRows && col < numCColumns)
     {
-        int idxC = (numCRows * numCColumns) * batch + numCColumns * row + col;
+        // int idxC = (numCRows * numCColumns) * batch + numCColumns * row + col;
+        int idxC = numCColumns * row + col;
         C[idxC] = val;
     }
 }
@@ -117,7 +119,8 @@ __global__ void forward_kernel(
 
 __global__ void unroll_kernel(
     const float* x, float* x_unroll,
-    const int H_in, const int W_in, const int H_out, const int W_out,
+    const int H_in, const int W_in,
+    const int H_out, const int W_out,
     const int H_xu, const int W_xu,
     const int B, const int C, const int K
 )
@@ -142,18 +145,48 @@ __global__ void unroll_kernel(
         int x_col = unroll_col % W_out;
 
         // indices in x_unroll
-        int h_unroll = x_row * W_out + x_col;
+        int OUT_col = (batch * W_xu) + x_row * W_out + x_col;
         int w_base = channel * K * K;
+
+        // if(batch == 1)
+        // {
+        //     printf("tid=%d channel=%d unroll_col=%d x_row=%d x_col=%d OUT_col=%d w_base=%d\n",
+        //            tId, channel, unroll_col, x_row, x_col, OUT_col, w_base);
+        // }
 
         for (int k_y = 0; k_y < K; ++k_y)
         {
             for (int k_x = 0; k_x < K; ++k_x)
             {
-                int w_unroll = w_base + k_y * K + k_x;
-                // TODO: swap index names for xu3d
-                xu3d(batch, w_unroll, h_unroll) = x4d(batch, channel, x_row + k_y, x_col + k_x);
+                int OUT_row = w_base + k_y * K + k_x;
+                x_unroll[(B * W_xu) * OUT_row + OUT_col] =
+                    x4d(batch, channel, x_row + k_y, x_col + k_x);
             }
         }
+    }
+}
+
+
+__global__ void reroll_kernel(
+    const float* yu, float* y,
+    const int H_in, const int W_in,
+    const int H_out, const int W_out,
+    const int H_xu, const int W_xu,
+    const int B, const int M, const int K
+)
+{
+    int batch = blockIdx.y;
+    int tId = blockDim.x * blockIdx.x + threadIdx.x;
+
+    if (tId < M * W_xu)
+    {
+        const int yu_row = tId / W_xu;
+        const int yu_col = tId / W_xu + (batch * W_xu);
+
+        const int y_row = yu_row + (batch * M);
+        const int y_col = tId / W_xu;
+
+        y[y_row * (W_xu) + y_col] = yu[yu_row * (B * W_xu) + yu_col];
     }
 }
 
@@ -199,14 +232,16 @@ void forward<gpu, float>(
     const int wts_cols = channels * k_dim * k_dim;
     const int H_xu = channels * k_dim * k_dim;
     const int W_xu = h_out * w_out;
-    // const int newy_rows = fmaps;
-    // const int newy_cols = h_out * w_out;
+
+    const int y_unroll_rows = fmaps;
+    const int y_unroll_cols = batches * h_out * w_out;
 
     // Tensor<gpu, 2, float> wts = Tensor<gpu, 2, float>(w.dptr_, Shape2(wts_rows, wts_cols));
-    Tensor<gpu, 3, float> x_unroll(Shape3(W_xu, H_xu, batches));
-    // Tensor<gpu, 2, float> newy = Tensor<gpu, 2, float>(y.dptr_, Shape2(newy_rows, newy_cols));
+    Tensor<gpu, 2, float> x_unroll(Shape2(W_xu * batches, H_xu));
+    Tensor<gpu, 2, float> y_unroll(Shape2(y_unroll_cols, y_unroll_rows));
 
     AllocSpace(&x_unroll);
+    AllocSpace(&y_unroll);
 
     /****************************** UNROLLING *********************************/
 
@@ -215,13 +250,14 @@ void forward<gpu, float>(
     dim3 grid_unroll(blocks_per_img, batches, 1);
     dim3 block_unroll(MAX_THREADS, 1, 1);
 
-    fprintf(stdout, "\nUnroll Kernel:\n");
+    fprintf(stdout, "\n\nUnroll Kernel:\n");
     printDim3((char *)"grid", grid_unroll);
     printDim3((char *)"block", block_unroll);
 
     unroll_kernel<<<grid_unroll, block_unroll>>>(
         x.dptr_, x_unroll.dptr_,
-        h_in, w_in, h_out, w_out,
+        h_in, w_in,
+        h_out, w_out,
         H_xu, W_xu,
         batches, channels, k_dim
     );
@@ -232,9 +268,11 @@ void forward<gpu, float>(
 
     /*************************** MATRIX MULTIPLY ******************************/
 
+    // const int numCRows = wts_rows;
+    // const int numCColumns = W_xu;
     const int numCRows = wts_rows;
-    const int numCColumns = W_xu;
-    dim3 grid_mm(ceil(numCColumns, MAT_TILE_DIM), ceil(numCRows, MAT_TILE_DIM), batches);
+    const int numCColumns = W_xu * batches;
+    dim3 grid_mm(ceil(numCColumns, MAT_TILE_DIM), ceil(numCRows, MAT_TILE_DIM), 1);//, batches);
     dim3 block_mm(MAT_TILE_DIM, MAT_TILE_DIM, 1);
 
     fprintf(stdout, "\nMatrix Multiply Kernel:\n");
@@ -247,14 +285,36 @@ void forward<gpu, float>(
     matrixMultiplyShared<<<grid_mm, block_mm>>>(
         w.dptr_, x_unroll.dptr_, y.dptr_,
         wts_rows, wts_cols,
-        H_xu, W_xu,
+        H_xu, W_xu * batches,
         numCRows, numCColumns
+    );
+
+    /**************************************************************************/
+
+    /******************************** REROLL Y ********************************/
+
+    const int threads_per_output = fmaps * h_out * w_out;
+    const int blocks_per_output = ceil(threads_per_output, MAX_THREADS);
+    dim3 grid_reroll(blocks_per_output, batches, 1);
+    dim3 block_reroll(MAX_THREADS, 1, 1);
+
+    fprintf(stdout, "\n\nReroll Kernel:\n");
+    printDim3((char *)"grid", grid_reroll);
+    printDim3((char *)"block", block_reroll);
+
+    reroll_kernel<<<grid_reroll, block_reroll>>>(
+        y_unroll.dptr_, y.dptr_,
+        h_in, w_in,
+        h_out, w_out,
+        H_xu, W_xu,
+        batches, fmaps, k_dim
     );
 
     /**************************************************************************/
 
     // Use MSHADOW_CUDA_CALL to check for CUDA runtime errors.
 
+    FreeSpace(&y_unroll);
     FreeSpace(&x_unroll);
 }
 
