@@ -5,9 +5,14 @@
 #define MAT_TILE_DIM  32
 #define MAX_THREADS   1024
 #define ceil(num,denom) (((num)-1) / (denom) + 1)
+
 #define CONST_M       50
 #define CONST_K       5
 #define CONST_C       1
+#define H_IN         28
+#define W_IN         28
+#define H_OUT        24
+#define W_OUT        24
 
 #include <mxnet/base.h>
 
@@ -16,25 +21,19 @@ namespace mxnet
 namespace op
 {
 
-// __constant__ float weights[CONST_M][CONST_K][CONST_K];
-__constant__ float weights[50][5][5];
+__constant__ float weights[CONST_M][CONST_K][CONST_K];
 
-__global__ void unroll_kernel(
-    const float* x, float* y/*,
-    const int H_in, const int W_in,
-    const int H_out, const int W_out,
-    const int H_xu, const int W_xu,
-    const int B, const int C, const int M, const int K*/
+__global__ void forward_kernel(
+    const float* x, float* y
 )
 {
-    #define x4d(i3,i2,i1,i0) x[(i3)*(CONST_C*28*28) + (i2)*(28*28) + (i1)*(28) + i0]
-    #define y4d(i3,i2,i1,i0) y[(i3)*(CONST_M*24*24) + (i2)*(24*24) + (i1)*(24) + i0]
+    #define x4d(i3,i2,i1,i0) x[(i3)*(CONST_C*H_IN*W_IN) + (i2)*(H_IN*W_IN) + (i1)*(W_IN) + i0]
+    #define y4d(i3,i2,i1,i0) y[(i3)*(CONST_M*H_OUT*W_OUT) + (i2)*(H_OUT*W_OUT) + (i1)*(W_OUT) + i0]
+    #define xs2d(i1,i0) xs[(i1)*(W_IN) + i0]
 
-    __shared__ float xs[28][28];
+    extern __shared__ float xs[];
 
     const unsigned int batch = blockIdx.x;
-    // const int fmap = blockIdx.y;
-    // const int channel = 0;
 
     const unsigned int x_col = threadIdx.x;
     const unsigned int x_row = threadIdx.y;
@@ -44,43 +43,32 @@ __global__ void unroll_kernel(
     unsigned int fmap, k_y, k_x;
 
     /* Load x into shared memory xs */
-    xs[x_row][x_col] = x4d(batch, 0, x_row, x_col);
+    xs2d(x_row, x_col) = x4d(batch, 0, x_row, x_col);
 
     __syncthreads();
 
-    if (y_row < 24 && y_col < 24)
+    if (y_row < H_OUT && y_col < W_OUT)
     {
-        for(fmap = 0; fmap < 25; ++fmap)
+        for(fmap = 0; fmap < CONST_M; ++fmap)
         {
-            float val1 = 0.0;
-            float val2 = 0.0;
+            float val = 0.0;
 
-            for (k_y = 0; k_y < 5; k_y++)
+            for (k_y = 0; k_y < CONST_K; k_y++)
             {
-                for (k_x = 0; k_x < 5; k_x++)
+                for (k_x = 0; k_x < CONST_K; k_x++)
                 {
-                    // const int xs_row = y_row + k_y;
-                    // const int xs_col = y_col + k_x;
-                    // float xs_val = xs[xs_row][xs_col];
-                    val1 += weights[fmap   ][k_y][k_x] * xs[y_row + k_y][y_col + k_x];
-                    val2 += weights[fmap+25][k_y][k_x] * xs[y_row + k_y][y_col + k_x];
+                    val += weights[fmap][k_y][k_x] * xs2d(y_row + k_y, y_col + k_x);
                 }
             }
 
-            y4d(batch, fmap   , y_row, y_col) = val1;
-            y4d(batch, fmap+25, y_row, y_col) = val2;
+            y4d(batch, fmap, y_row, y_col) = val;
         }
     }
 
+    #undef xs2d
     #undef y4d
     #undef x4d
 }
-
-
-// void printDim3(char* dimType, dim3 toPrint)
-// {
-//     fprintf(stdout, "%s(%d, %d, %d)\n", dimType, toPrint.x, toPrint.y, toPrint.z);
-// }
 
 
 /*
@@ -110,36 +98,17 @@ void forward<gpu, float>(
     // const int w_in = x.shape_[3];
     // const int k_dim = w.shape_[3];
 
-    // const int h_out = h_in - k_dim + 1;
-    // const int w_out = w_in - k_dim + 1;
+    cudaMemcpyToSymbol(weights, w.dptr_, CONST_M*CONST_K*CONST_K * sizeof(float));
 
-    // const int wts_rows = fmaps;
-    // const int wts_cols = channels * k_dim * k_dim;
-    // const int H_xu = channels * k_dim * k_dim;
-    // const int W_xu = h_out * w_out;
+    /******************************** KERNEL **********************************/
 
-    // cudaMemcpyToSymbol(weights, w.dptr_, wts_rows * wts_cols * sizeof(float));
-    cudaMemcpyToSymbol(weights, w.dptr_, 50*5*5 * sizeof(float));
+    dim3 gridDim(batches, 1, 1);
+    dim3 blockDim(W_IN, H_IN, 1);
 
-    /****************************** UNROLLING *********************************/
+    size_t xshared_size = sizeof(float) * H_IN * W_IN;
 
-    // dim3 grid_unroll(batches, 1, 1);
-    // dim3 block_unroll(w_in, h_in, 1);
-    dim3 grid_unroll(batches, 1, 1);
-    dim3 block_unroll(28, 28, 1);
-
-    // fprintf(stdout, "\nUnroll Kernel:\n");
-    // printDim3((char *)"grid", grid_unroll);
-    // printDim3((char *)"block", block_unroll);
-
-    // size_t xshared_size = sizeof(float) * h_in * w_in;
-
-    unroll_kernel<<<grid_unroll, block_unroll, 0, s>>>(
-        x.dptr_, y.dptr_/*,
-        h_in, w_in,
-        h_out, w_out,
-        H_xu, W_xu,
-        batches, channels, fmaps, k_dim*/
+    forward_kernel<<<gridDim, blockDim, xshared_size, s>>>(
+        x.dptr_, y.dptr_
     );
 
     /**************************************************************************/
